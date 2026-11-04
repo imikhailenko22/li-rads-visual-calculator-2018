@@ -57,6 +57,12 @@ import confluentFib1 from "./assets/features/benign-def/confluentFib/benign-conf
 import confluentFib2 from "./assets/features/benign-def/confluentFib/benign-confluentFib-ex2.png";
 import confluentFib3 from "./assets/features/benign-def/confluentFib/benign-confluentFib-ex3.png";
 
+import Cyst1 from "./assets/features/benign-def/cyst/cyst1.png";
+import Cyst2 from "./assets/features/benign-def/cyst/cyst2.png";
+
+import hepaticFat1 from "./assets/features/benign-def/hepaticFat/hepaticFat1.png";
+import hepaticFat2 from "./assets/features/benign-def/hepaticFat/hepaticFat2.png";
+
 import focalFat1 from "./assets/features/benign-def/focalFat/benign-focalFat-ex1.png";
 import focalFat2 from "./assets/features/benign-def/focalFat/benign-focalFat-ex2.png";
 
@@ -257,7 +263,7 @@ const BENIGN_FEATURES: SpecialFeature[] = [
 
   {
     id: "distinctiveNodWithout",
-    label: "Distinctive nodule without malignant features",
+    label: "Distinctive nodule w/o malignant features",
   },
 ];
 
@@ -288,6 +294,16 @@ const SPECIAL_GALLERIES: Record<string, GalleryItem[]> = {
     { url: confluentFib1, label: "Confluent fibrosis example 1" },
     { url: confluentFib2, label: "Confluent fibrosis example 2" },
     { url: confluentFib3, label: "Confluent fibrosis example 3" },
+  ],
+
+  cyst_positive: [
+    { url: Cyst1, label: "Cyst example 1" },
+    { url: Cyst2, label: "Cyst example 2" },
+  ],
+  
+  hepaticFat_positive: [
+    { url: hepaticFat1, label: "Hepatic fat deposition example 1" },
+    { url: hepaticFat2, label: "Hepatic fat deposition example 2" },
   ],
 
   focalFat_positive: [
@@ -863,7 +879,7 @@ function SpecialLightbox({
           </div>
 
           <div className="mt-2 text-center text-sm text-white/90">
-            {images[idx].label} · {idx + 1}/{images.length}
+            {images[idx].label.replace(/\s+example\s+\d+/i, "")} · {idx + 1}/{images.length}
           </div>
         </div>
       </div>
@@ -881,7 +897,7 @@ interface ImageConfig {
 }
 
 // Untreated inputs
-type MajorFeatureStatus = "yes" | "no" | "nonEvaluable";
+type MajorFeatureStatus = "" | "yes" | "no" | "nonEvaluable";
 
 interface UntreatedInputs {
   examCompromised: boolean;
@@ -935,12 +951,64 @@ interface AppState {
 //   );
 // }
 
+function AutoGrowingReportTextarea({
+  value,
+  formatKey,
+}: {
+  value: string;
+  formatKey: ReportFormat;
+}) {
+  const ref = React.useRef<HTMLTextAreaElement>(null);
+  const lastAutoHeightRef = React.useRef<number | null>(null);
+  const previousFormatRef = React.useRef<ReportFormat>(formatKey);
+
+  React.useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+
+    const formatChanged = previousFormatRef.current !== formatKey;
+    previousFormatRef.current = formatKey;
+
+    const currentHeight = el.getBoundingClientRect().height;
+    const wasStillAutoSized =
+      lastAutoHeightRef.current == null ||
+      Math.abs(currentHeight - lastAutoHeightRef.current) < 3;
+
+    // On first render or when switching Essentials / Full macro, reset the box
+    // to the content height. On ordinary report updates, keep a user's manual
+    // resize unless the content grows beyond the available height.
+    if (formatChanged || wasStillAutoSized) {
+      el.style.height = "auto";
+      const nextHeight = el.scrollHeight + 6;
+      el.style.height = `${nextHeight}px`;
+      lastAutoHeightRef.current = el.getBoundingClientRect().height;
+      return;
+    }
+
+    if (el.scrollHeight + 6 > currentHeight) {
+      const nextHeight = el.scrollHeight + 6;
+      el.style.height = `${nextHeight}px`;
+      lastAutoHeightRef.current = el.getBoundingClientRect().height;
+    }
+  }, [value, formatKey]);
+
+  return (
+    <textarea
+      ref={ref}
+      rows={1}
+      className="w-full resize-y max-h-[80vh] overflow-auto p-3 border rounded-2xl"
+      readOnly
+      value={value}
+    />
+  );
+}
+
 function Section({
   title,
   subtitle,
   children,
 }: {
-  title: string;
+  title: React.ReactNode;
   subtitle?: string;
   children: React.ReactNode;
 }) {
@@ -1118,14 +1186,6 @@ function computeUntreated(inputs: UntreatedInputs): EngineResult {
       explanation: steps,
     };
   }
-  if (inputs.definitelyBenign) {
-    steps.push("Observation definitely benign → LR-1.");
-    return { category: "LR-1", title: "Definitely Benign", explanation: steps };
-  }
-  if (inputs.probablyBenign) {
-    steps.push("Observation probably benign → LR-2.");
-    return { category: "LR-2", title: "Probably Benign", explanation: steps };
-  }
   if (inputs.tiv) {
     steps.push("Definite tumor in vein (TIV) → LR-TIV.");
     return { category: "LR-TIV", title: "Tumor in Vein", explanation: steps };
@@ -1139,25 +1199,34 @@ function computeUntreated(inputs: UntreatedInputs): EngineResult {
     };
   }
 
-  const sizeBucket = inputs.sizeBucket;
-  const hasAPHE = inputs.aphe;
-  const hasWashout = inputs.washout;
-  const hasCapsule = inputs.capsule;
-  const hasTG = inputs.thresholdGrowth;
-  const otherCount = [hasWashout, hasCapsule, hasTG].filter(Boolean).length;
+  let base: UntreatedCategory;
 
-  steps.push(`Size bucket: ${sizeBucket}`);
-  steps.push(
-    `Major features → APHE: ${hasAPHE ? "yes" : "no"}; washout: ${
-      hasWashout ? "yes" : "no"
-    }; capsule: ${hasCapsule ? "yes" : "no"}; threshold growth: ${
-      hasTG ? "yes" : "no"
-    }`
-  );
+  if (inputs.definitelyBenign) {
+    steps.push("Observation definitely benign → base category LR-1.");
+    base = "LR-1";
+  } else if (inputs.probablyBenign) {
+    steps.push("Observation probably benign → base category LR-2.");
+    base = "LR-2";
+  } else {
+    const sizeBucket = inputs.sizeBucket;
+    const hasAPHE = inputs.aphe;
+    const hasWashout = inputs.washout;
+    const hasCapsule = inputs.capsule;
+    const hasTG = inputs.thresholdGrowth;
+    const otherCount = [hasWashout, hasCapsule, hasTG].filter(Boolean).length;
 
-  let base: UntreatedCategory = "LR-3";
+    steps.push(`Size bucket: ${sizeBucket}`);
+    steps.push(
+      `Major features → APHE: ${hasAPHE ? "yes" : "no"}; washout: ${
+        hasWashout ? "yes" : "no"
+      }; capsule: ${hasCapsule ? "yes" : "no"}; threshold growth: ${
+        hasTG ? "yes" : "no"
+      }`
+    );
 
-  if (sizeBucket === "<10") {
+    base = "LR-3";
+
+    if (sizeBucket === "<10") {
     if (hasAPHE && (hasWashout || hasCapsule || hasTG)) {
       steps.push(
         "<10 mm with APHE and another major feature → LR-4 (cannot be LR-5 under 10 mm)."
@@ -1215,25 +1284,26 @@ function computeUntreated(inputs: UntreatedInputs): EngineResult {
     }
   }
 
-  const selectedLrMOverrideFeatures = LR_M_OVERRIDE_FEATURES.filter((f) =>
-    inputs.lrMOverrideFeatureIds.includes(f.id)
-  );
+    const selectedLrMOverrideFeatures = LR_M_OVERRIDE_FEATURES.filter((f) =>
+      inputs.lrMOverrideFeatureIds.includes(f.id)
+    );
 
-  if (
-    (base === "LR-3" || base === "LR-4") &&
-    selectedLrMOverrideFeatures.length > 0
-  ) {
+    if (
+      (base === "LR-3" || base === "LR-4") &&
+      selectedLrMOverrideFeatures.length > 0
+    ) {
     steps.push(
       `LR-M feature(s) present: ${selectedLrMOverrideFeatures
         .map((f) => f.label)
         .join("; ")} → LR-M.`
     );
 
-    return {
-      category: "LR-M",
-      title: "Probably/Definitely Malignant (non–HCC specific)",
-      explanation: steps,
-    };
+      return {
+        category: "LR-M",
+        title: "Probably/Definitely Malignant (non–HCC specific)",
+        explanation: steps,
+      };
+    }
   }
 
   let finalCat: UntreatedCategory = base;
@@ -1373,6 +1443,56 @@ function renderSpecialVisualPanel(
 
   if (!visibleFeatures.length) return null;
 
+  const isBenignVisualPanel =
+  key === "probablyBenign" || key === "definitelyBenign";
+
+const benignVisualFeatures = visibleFeatures.filter(
+  (feature) => feature.id !== "otherBenign"
+);
+
+const benignVisualLeftOrder =
+  key === "probablyBenign"
+    ? [
+        "cyst",
+        "perfusionAlt",
+        "hemangioma",
+        "hepaticFat",
+        "focalFat",
+        "confluentFibrosis",
+      ]
+    : [
+        "cyst",
+        "perfusionAlt",
+        "hemangioma",
+        "hepaticFat",
+        "focalFat",
+      ];
+
+const benignVisualRightOrder =
+  key === "probablyBenign"
+    ? [
+        "hyperPseudo",
+        "focalScar",
+        "vascularAnomaly",
+        "liverAbscess",
+        "distinctiveNodWithout",
+      ]
+    : [
+        "confluentFibrosis",
+        "hyperPseudo",
+        "focalScar",
+        "vascularAnomaly",
+        "liverAbscess",
+      ];
+
+const benignVisualLeftFeatures = benignVisualLeftOrder
+  .map((id) => benignVisualFeatures.find((feature) => feature.id === id))
+  .filter((feature): feature is SpecialFeature => Boolean(feature));
+
+const benignVisualRightFeatures = benignVisualRightOrder
+  .map((id) => benignVisualFeatures.find((feature) => feature.id === id))
+  .filter((feature): feature is SpecialFeature => Boolean(feature));
+
   return (
     <div className="mt-2 rounded-2xl border bg-gray-50 px-3 py-2 text-xs text-gray-700">
       <div className="flex items-start justify-between gap-3">
@@ -1381,67 +1501,177 @@ function renderSpecialVisualPanel(
         </div>
       </div>
 
-      <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-1">
-        {visibleFeatures.map((f) => {
-          const posKey = `${f.id}_positive`;
-          const negKey = `${f.id}_negative`;
-          const hasPos = hasGallery(posKey);
-          const hasNeg = hasGallery(negKey);
-          const hasAnyGallery = hasPos || hasNeg;
+      {isBenignVisualPanel ? (
+  <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-1">
+    <div>
+      {benignVisualLeftFeatures.map((f) => {
+        const posKey = `${f.id}_positive`;
+        const negKey = `${f.id}_negative`;
+        const hasPos = hasGallery(posKey);
+        const hasNeg = hasGallery(negKey);
+        const hasAnyGallery = hasPos || hasNeg;
 
-          return (
-            <div key={f.id} className="flex items-center justify-between gap-3">
-              {hasAnyGallery ? (
-                <button
-                  type="button"
-                  onClick={() =>
-                    openSpecialGallery(
-                      `Visual references for what ${f.label} is`,
-                      hasPos ? posKey : negKey
-                    )
-                  }
-                  className={
-                    "group w-full flex items-center justify-between rounded-xl px-3 py-2 " +
-                    "text-left text-sm text-slate-800 " +
-                    "hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600/30 " +
-                    "border border-transparent hover:border-slate-200"
-                  }
+        return (
+          <div
+            key={f.id}
+            className="flex items-center justify-between gap-3"
+          >
+            {hasAnyGallery ? (
+              <button
+                type="button"
+                onClick={() =>
+                  openSpecialGallery(
+                    `Visual references for what ${f.label} is`,
+                    hasPos ? posKey : negKey
+                  )
+                }
+                className={
+                  "group w-full flex items-center justify-between rounded-xl px-3 py-2 " +
+                  "text-left text-sm text-slate-800 " +
+                  "hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600/30 " +
+                  "border border-transparent hover:border-slate-200"
+                }
+              >
+                <span className="leading-snug">{f.label}</span>
+
+                <svg
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                  className="h-4 w-4 text-slate-300 group-hover:text-slate-500"
+                  aria-hidden="true"
                 >
-                  <span className="leading-snug">{f.label}</span>
-
-                  <svg
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                    className="h-4 w-4 text-slate-300 group-hover:text-slate-500"
-                    aria-hidden="true"
-                  >
-                    <path
-                      fillRule="evenodd"
-                      d="M7.21 14.77a.75.75 0 0 1 .02-1.06L10.94 10 7.23 6.29a.75.75 0 1 1 1.06-1.06l4.24 4.24a.75.75 0 0 1 0 1.06l-4.24 4.24a.75.75 0 0 1-1.08.02z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
-                </button>
-              ) : (
-                <div className="w-full rounded-xl border border-transparent px-3 py-2 text-left text-sm text-slate-800">
-                  <span className="leading-snug">{f.label}</span>
-                </div>
-              )}
-
-              {/* optional: if you ever add negatives/pitfalls later, you can add a second small button */}
-            </div>
-          );
-        })}
-
-        {key === "probablyBenign" && (
-          <div className="relative min-h-[36px] sm:col-start-2">
-            <div className="absolute inset-y-0 left-3 flex max-w-[280px] items-center text-left text-[11px] leading-snug text-slate-500">
-              If unsure whether an entity is definitely or probably benign,
-              categorize as probably benign.
-            </div>
+                  <path
+                    fillRule="evenodd"
+                    d="M7.21 14.77a.75.75 0 0 1 .02-1.06L10.94 10 7.23 6.29a.75.75 0 1 1 1.06-1.06l4.24 4.24a.75.75 0 0 1 0 1.06l-4.24 4.24a.75.75 0 0 1-1.08.02z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              </button>
+            ) : (
+              <div className="w-full rounded-xl border border-transparent px-3 py-2 text-left text-sm text-slate-800">
+                <span className="leading-snug">{f.label}</span>
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        );
+      })}
+    </div>
+
+    <div>
+      {benignVisualRightFeatures.map((f) => {
+        const posKey = `${f.id}_positive`;
+        const negKey = `${f.id}_negative`;
+        const hasPos = hasGallery(posKey);
+        const hasNeg = hasGallery(negKey);
+        const hasAnyGallery = hasPos || hasNeg;
+
+        return (
+          <div
+            key={f.id}
+            className="flex items-center justify-between gap-3"
+          >
+            {hasAnyGallery ? (
+              <button
+                type="button"
+                onClick={() =>
+                  openSpecialGallery(
+                    `Visual references for what ${f.label} is`,
+                    hasPos ? posKey : negKey
+                  )
+                }
+                className={
+                  "group w-full flex items-center justify-between rounded-xl px-3 py-2 " +
+                  "text-left text-sm text-slate-800 " +
+                  "hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600/30 " +
+                  "border border-transparent hover:border-slate-200"
+                }
+              >
+                <span className="leading-snug">{f.label}</span>
+
+                <svg
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                  className="h-4 w-4 text-slate-300 group-hover:text-slate-500"
+                  aria-hidden="true"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M7.21 14.77a.75.75 0 0 1 .02-1.06L10.94 10 7.23 6.29a.75.75 0 1 1 1.06-1.06l4.24 4.24a.75.75 0 0 1 0 1.06l-4.24 4.24a.75.75 0 0 1-1.08.02z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              </button>
+            ) : (
+              <div className="w-full rounded-xl border border-transparent px-3 py-2 text-left text-sm text-slate-800">
+                <span className="leading-snug">{f.label}</span>
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {key === "probablyBenign" && (
+        <div className="relative min-h-[36px]">
+          <div className="absolute inset-y-0 left-3 flex max-w-[280px] items-center text-left text-[11px] leading-snug text-slate-500">
+            If unsure whether an entity is definitely or probably benign,
+            categorize as probably benign.
+          </div>
+        </div>
+      )}
+    </div>
+  </div>
+) : (
+  <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-1">
+    {visibleFeatures.map((f) => {
+      const posKey = `${f.id}_positive`;
+      const negKey = `${f.id}_negative`;
+      const hasPos = hasGallery(posKey);
+      const hasNeg = hasGallery(negKey);
+      const hasAnyGallery = hasPos || hasNeg;
+
+      return (
+        <div key={f.id} className="flex items-center justify-between gap-3">
+          {hasAnyGallery ? (
+            <button
+              type="button"
+              onClick={() =>
+                openSpecialGallery(
+                  `Visual references for what ${f.label} is`,
+                  hasPos ? posKey : negKey
+                )
+              }
+              className={
+                "group w-full flex items-center justify-between rounded-xl px-3 py-2 " +
+                "text-left text-sm text-slate-800 " +
+                "hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600/30 " +
+                "border border-transparent hover:border-slate-200"
+              }
+            >
+              <span className="leading-snug">{f.label}</span>
+
+              <svg
+                viewBox="0 0 20 20"
+                fill="currentColor"
+                className="h-4 w-4 text-slate-300 group-hover:text-slate-500"
+                aria-hidden="true"
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M7.21 14.77a.75.75 0 0 1 .02-1.06L10.94 10 7.23 6.29a.75.75 0 1 1 1.06-1.06l4.24 4.24a.75.75 0 0 1 0 1.06l-4.24 4.24a.75.75 0 0 1-1.08.02z"
+                  clipRule="evenodd"
+                />
+              </svg>
+            </button>
+          ) : (
+            <div className="w-full rounded-xl border border-transparent px-3 py-2 text-left text-sm text-slate-800">
+              <span className="leading-snug">{f.label}</span>
+            </div>
+          )}
+        </div>
+      );
+    })}
+  </div>
+)}
     </div>
   );
 }
@@ -1497,6 +1727,7 @@ function renderSpecialVisualPanel(
 // }
 
 type SizeUnit = "mm" | "cm";
+type ReportFormat = "essentials" | "fullMacro";
 
 interface ReportMeta {
   observationNumber: string;
@@ -1504,6 +1735,89 @@ interface ReportMeta {
   imageNumber: string;
   seriesNumber: string;
   tivVessels: string;
+  priorSize: string;
+  priorSizeUnit: SizeUnit;
+  reportFormat: ReportFormat;
+}
+
+function MeasurementInput({
+  value,
+  unit,
+  onValueChange,
+  onUnitChange,
+  placeholder = "e.g., 5",
+}: {
+  value: string;
+  unit: SizeUnit;
+  onValueChange: (value: string) => void;
+  onUnitChange: (unit: SizeUnit) => void;
+  placeholder?: string;
+}) {
+  return (
+    <div className="flex w-full items-stretch overflow-hidden rounded-2xl border bg-white focus-within:ring-2 focus-within:ring-blue-600/20">
+      <input
+        type="number"
+        min="0"
+        step="0.1"
+        value={value}
+        onChange={(e) => onValueChange(e.target.value)}
+        placeholder={placeholder}
+        className="min-w-0 flex-1 border-0 bg-transparent px-3 py-2 outline-none"
+      />
+
+      <div className="flex shrink-0 items-center border-l bg-gray-50 p-1">
+        <button
+          type="button"
+          onClick={() => onUnitChange("mm")}
+          aria-pressed={unit === "mm"}
+          className={[
+            "rounded-xl px-3 py-1.5 text-sm font-semibold transition",
+            unit === "mm"
+              ? "bg-blue-600 text-white shadow-sm"
+              : "text-gray-700 hover:bg-white",
+          ].join(" ")}
+        >
+          mm
+        </button>
+        <button
+          type="button"
+          onClick={() => onUnitChange("cm")}
+          aria-pressed={unit === "cm"}
+          className={[
+            "rounded-xl px-3 py-1.5 text-sm font-semibold transition",
+            unit === "cm"
+              ? "bg-blue-600 text-white shadow-sm"
+              : "text-gray-700 hover:bg-white",
+          ].join(" ")}
+        >
+          cm
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function RequiredForScoreBadge({
+  className = "",
+  label = "Required for score",
+}: {
+  className?: string;
+  label?: string;
+}) {
+  return (
+    <span
+      className={
+        "inline-flex items-center justify-center gap-1.5 rounded-2xl border border-red-200 bg-red-50 px-2 py-1 text-[10px] font-semibold text-red-700 whitespace-nowrap " +
+        className
+      }
+    >
+      <span
+        aria-hidden="true"
+        className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-700/70"
+      />
+      {label}
+    </span>
+  );
 }
 
 function SizeInputBlock({
@@ -1512,10 +1826,12 @@ function SizeInputBlock({
   onSizeChange,
   openSpecialGallery,
   title = "Size",
+  showRequiredIndicator = false,
 }: {
   sizeValue: string;
   sizeUnit: SizeUnit;
   title?: string;
+  showRequiredIndicator?: boolean;
   onSizeChange: (
     patch: Partial<Pick<UntreatedInputs, "sizeValue" | "sizeUnit">>
   ) => void;
@@ -1526,74 +1842,31 @@ function SizeInputBlock({
   ) => void;
 }) {
   return (
-    <div className="flex flex-col gap-3">
-      <div className="grid grid-cols-1 gap-3 items-end sm:grid-cols-[minmax(0,1fr)_auto_auto]">
-        <div className="space-y-1">
-          <div className="text-xs font-semibold text-gray-700 leading-none mb-1 pl-1">
-            {title}
-          </div>
-          <input
-            type="number"
-            min="0"
-            step="0.1"
-            value={sizeValue}
-            onChange={(e) => onSizeChange({ sizeValue: e.target.value })}
-            placeholder="e.g., 5"
-            className="w-full rounded-2xl border px-3 py-2"
-          />
+    <div className="grid grid-cols-1 gap-3 items-end sm:grid-cols-[minmax(0,1fr)_auto]">
+      <div className="space-y-1">
+        <div className="mb-1 pl-1 text-xs font-semibold leading-none text-gray-700">
+          <span>{title}</span>
         </div>
-
-        <div className="space-y-1">
-          <div className="text-xs font-semibold text-gray-700 leading-none mb-1 pl-1">
-            Units
-          </div>
-          <div className="inline-flex rounded-2xl border bg-gray-50 p-1">
-            <button
-              type="button"
-              onClick={() => onSizeChange({ sizeUnit: "mm" })}
-              className={[
-                "px-4 py-2 rounded-xl text-sm font-semibold",
-                sizeUnit === "mm"
-                  ? "bg-blue-600 text-white"
-                  : "text-gray-700 hover:bg-white",
-              ].join(" ")}
-            >
-              mm
-            </button>
-
-            <button
-              type="button"
-              onClick={() => onSizeChange({ sizeUnit: "cm" })}
-              className={[
-                "px-4 py-2 rounded-xl text-sm font-semibold",
-                sizeUnit === "cm"
-                  ? "bg-blue-600 text-white"
-                  : "text-gray-700 hover:bg-white",
-              ].join(" ")}
-            >
-              cm
-            </button>
-          </div>
-        </div>
-
-        <div className="space-y-1">
-          <div className="text-xs font-semibold text-gray-700 leading-none mb-1 pl-1 opacity-0">
-            Reference
-          </div>
-          <button
-            type="button"
-            className="inline-flex h-[42px] items-center justify-center whitespace-nowrap rounded-2xl border border-blue-200 bg-blue-50 px-3 text-[12px] font-medium text-blue-700 hover:bg-blue-100"
-            onClick={() =>
-              openSpecialGallery(
-                "How to measure observation size correctly",
-                "size_reference"
-              )
-            }
-          >
-            How To Measure Size
-          </button>
-        </div>
+        <MeasurementInput
+          value={sizeValue}
+          unit={sizeUnit}
+          onValueChange={(value) => onSizeChange({ sizeValue: value })}
+          onUnitChange={(unit) => onSizeChange({ sizeUnit: unit })}
+        />
       </div>
+
+      <button
+        type="button"
+        className="inline-flex h-11 items-center justify-center whitespace-nowrap rounded-xl border border-gray-200 bg-white px-4 text-sm font-semibold text-blue-700 shadow-sm transition hover:bg-blue-50"
+        onClick={() =>
+          openSpecialGallery(
+            "How to measure observation size correctly",
+            "size_reference"
+          )
+        }
+      >
+        How To Measure Size
+      </button>
     </div>
   );
 }
@@ -1609,6 +1882,7 @@ function MajorFeatureQuestion({
   galleryKey,
   openSpecialGallery,
   galleryLayout,
+  showRequiredIndicator = false,
 }: {
   title: string;
   name: string;
@@ -1624,9 +1898,21 @@ function MajorFeatureQuestion({
     layout?: LightboxLayout
   ) => void;
   galleryLayout?: LightboxLayout;
+  showRequiredIndicator?: boolean;
 }) {
+  const isRequired = status === "";
+
   return (
-    <Section title={title}>
+    <Section
+      title={
+        <div className="flex items-center justify-between gap-3">
+          <span>{title}</span>
+          {showRequiredIndicator && isRequired && (
+            <RequiredForScoreBadge className="w-[130px] shrink-0 translate-x-[6px]" />
+          )}
+        </div>
+      }
+    >
       <div className="grid grid-cols-[minmax(0,1fr)_auto] items-stretch gap-3">
         <div className="flex flex-col gap-3">
           <label className="flex w-full items-center gap-3 p-3 border rounded-2xl hover:shadow-sm cursor-pointer">
@@ -1677,10 +1963,10 @@ function MajorFeatureQuestion({
           )}
         </div>
 
-        <div className="h-full self-stretch">
+        <div className="h-full w-[118px] self-stretch">
           <button
             type="button"
-            className={majorExamplesPillClass + " h-full self-stretch px-4"}
+            className={majorExamplesPillClass + " h-full min-h-[48px] w-full justify-center px-3"}
             onClick={() =>
               openSpecialGallery(examplesTitle, galleryKey, galleryLayout)
             }
@@ -1727,7 +2013,6 @@ function FeatureCheckboxPanel({
     "hemangioma",
     "hepaticFat",
     "focalFat",
-    "confluentFibrosis",
     "otherBenign",
   ];
 
@@ -1739,8 +2024,14 @@ function FeatureCheckboxPanel({
     const isSelected = selectedIds.includes(feature.id);
 
     return (
-      <div key={feature.id} className="rounded-xl border bg-white px-3 py-2">
-        <div className="flex items-center justify-between gap-3">
+        <div
+          key={feature.id}
+          className={
+            "rounded-xl border bg-white px-3 py-2 " +
+            (isOther ? "min-h-[48px] flex items-center" : "")
+          }
+        >
+          <div className="flex w-full items-center justify-between gap-3">
           <label className="flex cursor-pointer items-start gap-2">
             <input
               type="checkbox"
@@ -1829,10 +2120,10 @@ export default function App() {
       capsule: false,
       washout: false,
       thresholdGrowth: false,
-      apheStatus: "no",
-      capsuleStatus: "no",
-      washoutStatus: "no",
-      thresholdGrowthStatus: "no",
+      apheStatus: "",
+      capsuleStatus: "",
+      washoutStatus: "",
+      thresholdGrowthStatus: "",
       apheNonEvaluableReason: "",
       capsuleNonEvaluableReason: "",
       washoutNonEvaluableReason: "",
@@ -1863,6 +2154,9 @@ export default function App() {
       imageNumber: "",
       seriesNumber: "",
       tivVessels: "",
+      priorSize: "",
+      priorSizeUnit: "mm",
+      reportFormat: "essentials",
     },
   });
 
@@ -2071,6 +2365,8 @@ export default function App() {
   };
 
   const [copied, setCopied] = useState(false);
+  const [showRequiredIndicators, setShowRequiredIndicators] = useState(false);
+  const [showDevelopmentTeam, setShowDevelopmentTeam] = useState(false);
 
   const [hasAnsweredInitialQuestion, setHasAnsweredInitialQuestion] =
     useState(false);
@@ -2108,8 +2404,44 @@ export default function App() {
     state.imaging.modality === "ct" ||
     (state.imaging.modality === "mri" && state.imaging.mriContrastAgent !== "");
 
+  const sizeNumber = parseFirstNumber(state.untreated.sizeValue);
+  const sizeComplete = sizeNumber != null && sizeNumber > 0;
+
+  // Size is not required to produce an LR-TIV score.
+  const sizeRequiredForScore = selectedSpecial !== "tiv";
+  const sizeRequirementSatisfied = !sizeRequiredForScore || sizeComplete;
+
+  const majorFeaturesComplete = [
+    state.untreated.apheStatus,
+    state.untreated.washoutStatus,
+    state.untreated.capsuleStatus,
+    state.untreated.thresholdGrowthStatus,
+  ].every((status) => status !== "");
+
+  // Major features are required only on the standard ("None apply") pathway.
+  const majorFeaturesRequired =
+    hasAnsweredInitialQuestion && selectedSpecial === "none";
+
   const showCalculatedResult =
-    imagingSelectionComplete && hasAnsweredInitialQuestion;
+    imagingSelectionComplete &&
+    hasAnsweredInitialQuestion &&
+    sizeRequirementSatisfied &&
+    (!majorFeaturesRequired || majorFeaturesComplete);
+
+  const missingMajorFeatureCount = majorFeaturesRequired
+    ? [
+        state.untreated.apheStatus,
+        state.untreated.washoutStatus,
+        state.untreated.capsuleStatus,
+        state.untreated.thresholdGrowthStatus,
+      ].filter((status) => status === "").length
+    : 0;
+
+  const requiredQuestionsRemaining =
+    (imagingSelectionComplete ? 0 : 1) +
+    (hasAnsweredInitialQuestion ? 0 : 1) +
+    (sizeRequirementSatisfied ? 0 : 1) +
+    missingMajorFeatureCount;
 
   const availableTargetoidFeatures = useMemo(
     () => getAvailableTargetoidFeatures(state.imaging),
@@ -2192,6 +2524,77 @@ export default function App() {
         />
       )}
 
+      {showDevelopmentTeam && (
+        <div
+          className="fixed inset-0 z-[130] flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setShowDevelopmentTeam(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="development-team-title"
+            className="relative w-full max-w-2xl rounded-3xl border bg-white p-6 shadow-xl md:p-8"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              aria-label="Close development team"
+              onClick={() => setShowDevelopmentTeam(false)}
+              className="absolute right-4 top-4 inline-flex h-9 w-9 items-center justify-center rounded-full border bg-white text-gray-500 transition hover:bg-gray-50 hover:text-gray-900"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                className="h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.25"
+                strokeLinecap="round"
+              >
+                <path d="M6 6l12 12" />
+                <path d="M18 6L6 18" />
+              </svg>
+            </button>
+
+            <div className="px-10 text-center">
+              <h2
+                id="development-team-title"
+                className="text-xl font-bold text-gray-900"
+              >
+                Development Team
+              </h2>
+              <p className="mt-1 text-sm text-gray-500">
+                Contributors to the LI-RADS v2018 Visual Calculator.
+              </p>
+            </div>
+
+            <div className="mt-6">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {[
+                  "Ilia Mikhailenko",
+                  "Claude Sirlin, MD",
+                  "Victoria Chernyak, MD",
+                  "An Tang, MD, MSc",
+                  "Alexandra Roudenko, MD",
+                  "Guilherme Cunha, MD",
+                  "Walter Henderson",
+                ].map((name, index) => (
+                  <div
+                    key={name}
+                    className={
+                      "rounded-2xl border bg-gray-50 px-4 py-3 text-center text-sm font-medium text-gray-700" +
+                      (index === 6 ? " sm:col-span-2 sm:mx-auto sm:w-[calc(50%-0.375rem)]" : "")
+                    }
+                  >
+                    {name}
+                  </div>
+                ))}
+              </div>
+
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="mx-auto max-w-7xl space-y-6">
         <style>{`
           @keyframes result-change {
@@ -2218,29 +2621,36 @@ export default function App() {
           }
         `}</style>
 
-        <header className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
+        <header className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div className="min-w-0">
             <h1 className="text-2xl md:text-3xl font-black tracking-tight">
               LI-RADS v2018 Visual Calculator
             </h1>
-            <p className="text-gray-600">
+            <p className="mt-0.5 text-gray-600">
               Calculator with visual references to features relevant to LI-RADS.
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={reset}
-              className="px-4 py-2 rounded-2xl border bg-white hover:bg-gray-50"
-            >
-              Reset Calculator
-            </button>
-          </div>
+          <button
+            onClick={reset}
+            className="h-11 shrink-0 self-start rounded-xl border bg-white px-4 text-sm font-semibold text-gray-700 transition hover:bg-gray-50 hover:text-gray-900"
+          >
+            Reset Calculator
+          </button>
         </header>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left column: inputs */}
           <div className="lg:col-span-2 space-y-6">
-            <Section title="Imaging Modality">
+            <Section
+              title={
+                <div className="flex items-center justify-between gap-3">
+                  <span>Imaging Modality</span>
+                  {showRequiredIndicators && !imagingSelectionComplete && (
+                    <RequiredForScoreBadge className="w-[118px] shrink-0" />
+                  )}
+                </div>
+              }
+            >
               <div className="space-y-4">
                 <fieldset>
                   <legend className="mb-2 text-sm font-semibold text-gray-700">
@@ -2350,7 +2760,16 @@ export default function App() {
                 </div>
               </div>
             </Section>
-            <Section title="Do any of the following apply?">
+            <Section
+              title={
+                <div className="flex items-center justify-between gap-3">
+                  <span>Do any of the following apply?</span>
+                  {showRequiredIndicators && !hasAnsweredInitialQuestion && (
+                    <RequiredForScoreBadge className="w-[118px] shrink-0" />
+                  )}
+                </div>
+              }
+            >
               <div className="flex flex-col gap-3">
                 {SPECIAL_OPTIONS.map((opt) => {
                   const key = opt.value;
@@ -2424,7 +2843,19 @@ export default function App() {
               </div>
             </Section>
 
-            <Section title="Observation Details">
+            <Section
+              title={
+                <div className="flex items-center justify-between gap-3">
+                  <span>Observation Details</span>
+                  {showRequiredIndicators && sizeRequiredForScore && !sizeComplete && (
+                    <RequiredForScoreBadge
+                      className="shrink-0"
+                      label="Largest dimension required for score"
+                    />
+                  )}
+                </div>
+              }
+            >
               <div className="space-y-4">
                 {/* Size is now always here, regardless of pathway */}
                 <SizeInputBlock
@@ -2440,6 +2871,19 @@ export default function App() {
                   onSizeChange={updateSize}
                   openSpecialGallery={openSpecialGallery}
                 />
+
+                <div className="space-y-1">
+                  <div className="text-xs font-semibold text-gray-700 leading-none mb-1 pl-1">
+                    Prior size (optional)
+                  </div>
+                  <MeasurementInput
+                    value={state.report.priorSize}
+                    unit={state.report.priorSizeUnit}
+                    onValueChange={(value) => setReport({ priorSize: value })}
+                    onUnitChange={(unit) => setReport({ priorSizeUnit: unit })}
+                    placeholder="e.g., 2"
+                  />
+                </div>
 
                 {selectedSpecial === "tiv" && (
                   <div className="space-y-1">
@@ -2501,21 +2945,6 @@ export default function App() {
                   )}
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* Image # */}
-                  <div className="space-y-1">
-                    <div className="text-xs font-semibold text-gray-700 leading-none mb-1 pl-1">
-                      Image #
-                    </div>
-                    <input
-                      value={state.report.imageNumber}
-                      onChange={(e) =>
-                        setReport({ imageNumber: e.target.value })
-                      }
-                      placeholder="e.g., 34"
-                      className="w-full rounded-2xl border px-3 py-2"
-                    />
-                  </div>
-
                   {/* Series # */}
                   <div className="space-y-1">
                     <div className="text-xs font-semibold text-gray-700 leading-none mb-1 pl-1">
@@ -2527,6 +2956,21 @@ export default function App() {
                         setReport({ seriesNumber: e.target.value })
                       }
                       placeholder="e.g., 7"
+                      className="w-full rounded-2xl border px-3 py-2"
+                    />
+                  </div>
+
+                  {/* Image # */}
+                  <div className="space-y-1">
+                    <div className="text-xs font-semibold text-gray-700 leading-none mb-1 pl-1">
+                      Image #
+                    </div>
+                    <input
+                      value={state.report.imageNumber}
+                      onChange={(e) =>
+                        setReport({ imageNumber: e.target.value })
+                      }
+                      placeholder="e.g., 34"
                       className="w-full rounded-2xl border px-3 py-2"
                     />
                   </div>
@@ -2548,6 +2992,7 @@ export default function App() {
                   examplesTitle="Examples of nonrim APHE (APHE present)"
                   galleryKey="aphe_examples"
                   openSpecialGallery={openSpecialGallery}
+                  showRequiredIndicator={showRequiredIndicators && majorFeaturesRequired}
                 />
 
                 <MajorFeatureQuestion
@@ -2565,6 +3010,7 @@ export default function App() {
                   galleryKey="capsule_examples"
                   galleryLayout="wide"
                   openSpecialGallery={openSpecialGallery}
+                  showRequiredIndicator={showRequiredIndicators && majorFeaturesRequired}
                 />
 
                 <MajorFeatureQuestion
@@ -2581,6 +3027,7 @@ export default function App() {
                   examplesTitle="Examples of nonperipheral washout"
                   galleryKey="washout_examples"
                   openSpecialGallery={openSpecialGallery}
+                  showRequiredIndicator={showRequiredIndicators && majorFeaturesRequired}
                 />
 
                 <MajorFeatureQuestion
@@ -2597,6 +3044,7 @@ export default function App() {
                   examplesTitle="Visual references for threshold growth"
                   galleryKey="growth_examples"
                   openSpecialGallery={openSpecialGallery}
+                  showRequiredIndicator={showRequiredIndicators && majorFeaturesRequired}
                 />
               </>
             )}
@@ -2760,13 +3208,37 @@ export default function App() {
                     detail={
                       showCalculatedResult
                         ? result.title
-                        : "Complete the initial questions to view a result."
+                        : "Complete required questions to see the LI-RADS score."
                     }
                     category={
                       showCalculatedResult ? String(result.category) : undefined
                     }
                   />
                 </div>
+
+                {!showCalculatedResult && (
+                  <div className="mt-3 space-y-3">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setShowRequiredIndicators((current) => !current)
+                      }
+                      className="h-11 w-full rounded-xl border border-gray-200 bg-white px-4 text-sm font-semibold text-blue-700 shadow-sm transition hover:bg-blue-50"
+                    >
+                      {showRequiredIndicators
+                        ? "Hide required questions"
+                        : "Why am I not seeing a score?"}
+                    </button>
+
+                    {showRequiredIndicators && (
+                      <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+                        <strong>{requiredQuestionsRemaining}</strong>{" "}
+                        {requiredQuestionsRemaining === 1 ? "question" : "questions"}{" "}
+                        still required for a score to appear{requiredQuestionsRemaining === 1 ? " is" : " are"} indicated throughout the calculator.
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div className="mt-3 p-4 rounded-2xl border bg-white shadow-sm">
                   <div className="font-semibold">Recommendation</div>
@@ -2787,29 +3259,76 @@ export default function App() {
                   className="absolute -top-2 left-0"
                 />
 
-                <textarea
-                  rows={10}
-                  className="w-full resize-y min-h-[15rem] max-h-[80vh] p-3 border rounded-2xl"
-                  readOnly
-                  value={buildReport(state, result)}
-                />
+                <div className="mb-3 flex items-end justify-between gap-3">
+                  <div>
+                    <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-600">
+                      Reporting format
+                    </div>
+                    <div className="inline-flex rounded-2xl border bg-gray-50 p-1">
+                      {([
+                        { value: "essentials", label: "Essentials" },
+                        { value: "fullMacro", label: "Full macro" },
+                      ] as const).map((option) => {
+                        const selected = state.report.reportFormat === option.value;
+                        return (
+                          <button
+                            key={option.value}
+                            type="button"
+                            onClick={() => setReport({ reportFormat: option.value })}
+                            className={
+                              "rounded-xl px-4 py-2 text-sm font-semibold transition " +
+                              (selected
+                                ? "bg-white text-blue-700 shadow-sm ring-1 ring-blue-200"
+                                : "text-gray-600 hover:text-gray-900")
+                            }
+                            aria-pressed={selected}
+                          >
+                            {option.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
 
-                <div className="text-right mt-2">
                   <button
                     onClick={async () => {
-                      const ok = await copyReport(state, result);
+                      const ok = await copyReport(
+                        state,
+                        result,
+                        hasAnsweredInitialQuestion,
+                        showCalculatedResult
+                      );
                       if (ok) {
                         setCopied(true);
                         setTimeout(() => setCopied(false), 2000);
                       }
                     }}
-                    className="px-4 py-2 rounded-2xl border bg-white hover:bg-gray-50"
+                    className="h-11 shrink-0 rounded-xl border bg-white px-4 text-sm font-semibold text-gray-700 transition hover:bg-gray-50 hover:text-gray-900"
                   >
                     {copied ? "Copied!" : "Copy report"}
                   </button>
                 </div>
+
+                <AutoGrowingReportTextarea
+                  formatKey={state.report.reportFormat}
+                  value={buildReport(
+                    state,
+                    result,
+                    hasAnsweredInitialQuestion,
+                    showCalculatedResult
+                  )}
+                />
+
               </div>
             </Section>
+
+            <button
+              type="button"
+              onClick={() => setShowDevelopmentTeam(true)}
+              className="inline-flex h-12 w-full items-center justify-center rounded-xl border border-gray-200 bg-white px-5 text-lg font-semibold text-blue-700 shadow-sm transition hover:bg-blue-50"
+            >
+              Development Team
+            </button>
 
             {/* <Section title="Quick Reference">
               <div className="flex flex-wrap gap-2">
@@ -2830,7 +3349,7 @@ export default function App() {
                   href={FEEDBACK_FORM_URL}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex w-full items-center justify-center rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-700 shadow-sm hover:bg-blue-100"
+                  className="inline-flex h-11 w-full items-center justify-center rounded-xl border border-gray-200 bg-white px-4 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-gray-50 hover:text-gray-900"
                 >
                   Submit feedback
                 </a>
@@ -2840,7 +3359,7 @@ export default function App() {
         </div>
       </div>
 
-      <footer className="mx-auto max-w-7xl text-xs text-gray-500 pt-2 pb-10">
+      <footer className="mx-auto max-w-7xl text-xs text-gray-500 pt-3 pb-10">
         <p>
           © 2018 LI-RADS Visual Calculator. Not associated with ACR or RSNA.
         </p>
@@ -2852,22 +3371,31 @@ export default function App() {
 
 // ------------- Report + Clipboard -------------
 
-function buildReport(state: AppState, result: EngineResult) {
+function buildReport(
+  state: AppState,
+  result: EngineResult,
+  hasAnsweredInitialQuestion: boolean,
+  showCalculatedResult: boolean
+) {
   const u = state.untreated;
   const r = state.report;
 
   const majorFeatureText = (
     status: MajorFeatureStatus,
-    reason: string
+    reason: string,
+    options?: { absentPresent?: boolean; thresholdGrowth?: boolean }
   ): string => {
-    if (status === "yes") return "Yes";
+    if (status === "") return "__";
+    if (status === "yes") return options?.absentPresent ? "Present" : "Yes";
     if (status === "nonEvaluable") {
       const cleanedReason = reason.trim();
       return cleanedReason
-        ? `Non-evaluable. (${cleanedReason})`
-        : "Non-evaluable. (No reason provided)";
+        ? `Non-evaluable (${cleanedReason})`
+        : options?.thresholdGrowth
+        ? "NA"
+        : "Equivocal";
     }
-    return "No (or unsure)";
+    return options?.absentPresent ? "Absent" : "No";
   };
 
   const selectedTargetoidFeatures = getAvailableTargetoidFeatures(
@@ -2877,11 +3405,6 @@ function buildReport(state: AppState, result: EngineResult) {
   const selectedLrMOverrideFeatures = LR_M_OVERRIDE_FEATURES.filter((f) =>
     u.lrMOverrideFeatureIds.includes(f.id)
   );
-
-  const lrMOverrideText =
-    selectedLrMOverrideFeatures.length > 0
-      ? selectedLrMOverrideFeatures.map((f) => f.label).join("; ")
-      : "None";
 
   const selectedBenignFeatures =
     u.definitelyBenign &&
@@ -2896,25 +3419,15 @@ function buildReport(state: AppState, result: EngineResult) {
         )
       : [];
 
-  const lrMFeaturesText =
-    u.malignantNotHcc && selectedTargetoidFeatures.length
-      ? selectedTargetoidFeatures.map((f) => f.label).join("; ")
-      : u.malignantNotHcc
-      ? "None selected"
-      : "None";
-
   const benignFeaturesText =
     (u.definitelyBenign || u.probablyBenign) && selectedBenignFeatures.length
       ? selectedBenignFeatures
           .map((f) => {
             if (f.id !== "otherBenign") return f.label;
-
             const otherText = u.benignOtherText.trim();
-            return otherText ? `Other: ${otherText}` : "Other: __";
+            return otherText ? `Other — ${otherText}` : "Other";
           })
           .join("; ")
-      : u.definitelyBenign || u.probablyBenign
-      ? "None selected"
       : "None";
 
   const selectedAncillaryFeatures = getAvailableAncillaryFeatures(
@@ -2931,98 +3444,162 @@ function buildReport(state: AppState, result: EngineResult) {
       .filter((f) => f.effect === "benignity")
       .map((f) => f.label)
       .join("; ") || "None";
-
   const hccAncText =
     selectedAncillaryFeatures
       .filter((f) => f.effect === "hcc")
       .map((f) => f.label)
       .join("; ") || "None";
 
-  const lines: string[] = [];
+  const allAncillaryText =
+    selectedAncillaryFeatures.length > 0
+      ? selectedAncillaryFeatures.map((f) => f.label).join("; ")
+      : "None";
 
-  // ✅ These are now filled from the UI (with sensible fallbacks if blank)
+  const lrMFeatureLabels = [
+    ...selectedTargetoidFeatures.map((f) => f.label),
+    ...selectedLrMOverrideFeatures.map((f) => f.label),
+  ];
+  const hasLrMFeatures = lrMFeatureLabels.length > 0 || u.malignantNotHcc;
+  const lrMFeaturesText = hasLrMFeatures
+    ? `Yes${lrMFeatureLabels.length ? `; ${lrMFeatureLabels.join(", ")}` : ""}`
+    : "No";
+
   const obs = r.observationNumber.trim() || "__";
   const seg = r.segment.trim() || "__";
-  const sizeValue = u.sizeValue.trim() || "__";
+  const sizeValue = u.sizeValue.trim() || (u.tiv ? "Not applicable" : "__");
   const sizeUnit = u.sizeUnit || "mm";
+  const sizeWithUnit = u.sizeValue.trim() ? `${sizeValue} ${sizeUnit}` : sizeValue;
   const imgNo = r.imageNumber.trim() || "__";
   const seriesNo = r.seriesNumber.trim() || "__";
-  const tivVessels = r.tivVessels.trim() || "__";
+  const tivVessels = r.tivVessels.trim();
+  const priorSize = r.priorSize.trim() || "No priors";
+  const priorSizeUnit = r.priorSizeUnit || "mm";
 
-  lines.push(`Observation #: ${obs}`);
-  lines.push(`Segment: ${seg}`);
+  const apheText = selectedTargetoidFeatures.some((f) => f.id === "rimAphe")
+    ? "Rim"
+    : u.apheStatus === ""
+    ? "__"
+    : u.apheStatus === "yes"
+    ? "Nonrim"
+    : u.apheStatus === "nonEvaluable"
+    ? "Equivocal"
+    : "No";
 
-  if (u.tiv) {
+  const washoutText = majorFeatureText(
+    u.washoutStatus,
+    u.washoutNonEvaluableReason
+  );
+  const capsuleText = majorFeatureText(
+    u.capsuleStatus,
+    u.capsuleNonEvaluableReason,
+    { absentPresent: r.reportFormat === "fullMacro" }
+  );
+  const thresholdGrowthText = majorFeatureText(
+    u.thresholdGrowthStatus,
+    u.thresholdGrowthNonEvaluableReason,
+    { thresholdGrowth: true }
+  );
+
+  if (r.reportFormat === "fullMacro") {
+    const lines: string[] = [];
+    lines.push(`Observation ${obs}:`);
+    lines.push(`Location: Segment ${seg}`);
     lines.push(
-      `Parenchymal component size, if visible: ${sizeValue} ${sizeUnit}, (image # ${imgNo}, series ${seriesNo})`
+      `${u.tiv ? "Size of parenchymal component" : "Size"}: ${sizeWithUnit} (image ${imgNo}, series ${seriesNo})`
     );
-    lines.push(`Tumor in Vein: Yes`);
-    lines.push(`Vessels involved: ${tivVessels}`);
-  } else if (u.examCompromised) {
     lines.push(
-      `Size, if measurable: ${sizeValue} ${sizeUnit}, (image # ${imgNo}, series ${seriesNo})`
+      `Tumor in Vein: ${u.tiv ? `Yes${tivVessels ? ` — ${tivVessels}` : ""}` : "No"}`
     );
-    lines.push(`Tumor in Vein: No`);
-  } else if (u.definitelyBenign || u.probablyBenign) {
+    lines.push(`LR-M Features: ${lrMFeaturesText}`);
+    if (u.definitelyBenign || u.probablyBenign) {
+      lines.push(`Benign entities: ${benignFeaturesText}`);
+    }
+    lines.push("Major features:");
+    lines.push(`APHE: ${apheText}`);
+    lines.push(`Washout Appearance: ${washoutText}`);
+    lines.push(`Capsule Appearance: ${capsuleText}`);
+    lines.push(`Threshold Growth: ${thresholdGrowthText}`);
+    if (String(result.category) !== "LR-M") {
+      lines.push("Ancillary Features:");
+      lines.push(`Favoring benignity: ${benignAncText}`);
+      lines.push(
+        `Favoring malignancy: ${[malignantAncText, hccAncText]
+          .filter((value) => value !== "None")
+          .join("; ") || "None"}`
+      );
+    }
     lines.push(
-      `Size: ${sizeValue} ${sizeUnit}, (image # ${imgNo}, series ${seriesNo})`
+      `LI-RADS category: ${
+        showCalculatedResult
+          ? String(result.category)
+          : "Complete required questions to see score"
+      }`
     );
-    lines.push(`Benign entities: ${benignFeaturesText}`);
-    lines.push(`Tumor in Vein: No`);
-  } else if (u.malignantNotHcc) {
-    lines.push(
-      `Size: ${sizeValue} ${sizeUnit}, (image # ${imgNo}, series ${seriesNo})`
-    );
-    lines.push(`Tumor in Vein: No`);
-  } else {
-    lines.push(
-      `Size: ${sizeValue} ${sizeUnit}, (image # ${imgNo}, series ${seriesNo})`
-    );
-    lines.push(`Tumor in Vein: No`);
+    return lines.join("\n");
   }
 
-  lines.push(`LR-M Features: ${lrMFeaturesText}`);
-  lines.push(`LR-M override features: ${lrMOverrideText}`);
-  lines.push(
-    `Nonrim AP hyperenhancement: ${majorFeatureText(
-      u.apheStatus,
-      u.apheNonEvaluableReason
-    )}`
-  );
-  lines.push(
-    `Threshold growth: ${majorFeatureText(
-      u.thresholdGrowthStatus,
-      u.thresholdGrowthNonEvaluableReason
-    )}`
-  );
-  lines.push(
-    `Nonperipheral washout appearance: ${majorFeatureText(
-      u.washoutStatus,
-      u.washoutNonEvaluableReason
-    )}`
-  );
-  lines.push(
-    `Enhancing capsule appearance: ${majorFeatureText(
-      u.capsuleStatus,
-      u.capsuleNonEvaluableReason
-    )}`
-  );
-  if (String(result.category) !== "LR-M") {
-    lines.push("Ancillary features:");
-    lines.push(`    Favoring malignancy: ${malignantAncText}`);
-    lines.push(`    Favoring benignity: ${benignAncText}`);
-    lines.push(`    Favoring HCC in particular: ${hccAncText}`);
-  }
-  lines.push(`LI-RADS v2018 Category: ${String(result.category)} `);
+  const essentialsLines: string[] = [];
 
-  return lines.join("\n");
+  const essentialsObs = r.observationNumber.trim()
+    ? `[${r.observationNumber.trim()}]`
+    : "[#]";
+  const essentialsSegment = r.segment.trim() || "__";
+  const essentialsSeriesImage =
+    r.seriesNumber.trim() || r.imageNumber.trim()
+      ? `[${r.seriesNumber.trim() || "__"}/${r.imageNumber.trim() || "__"}]`
+      : "[Series/image]";
+
+  const essentialsSize = u.sizeValue.trim() || (u.tiv ? "Not applicable" : "__");
+  const essentialsSizeUnit = u.sizeUnit || "mm";
+  const essentialsSizeWithUnit = u.sizeValue.trim()
+    ? `${essentialsSize} ${essentialsSizeUnit}`
+    : essentialsSize;
+  const essentialsPriorSize = r.priorSize.trim()
+    ? `${r.priorSize.trim()} ${priorSizeUnit}`
+    : "[No priors]";
+  const essentialsTivText = !hasAnsweredInitialQuestion
+    ? "__"
+    : u.tiv
+    ? `Yes${tivVessels ? ` — ${tivVessels}` : ""}`
+    : "No";
+  const essentialsLrMText = !hasAnsweredInitialQuestion
+    ? "__"
+    : lrMFeaturesText;
+  const essentialsAncillaryText =
+    selectedAncillaryFeatures.length > 0 ? allAncillaryText : "__";
+  const essentialsCategory = showCalculatedResult
+    ? String(result.category)
+    : "Complete required questions to see score";
+
+  essentialsLines.push(`Observation ${essentialsObs}:`);
+  essentialsLines.push(
+    `Segment ${essentialsSegment}, ${essentialsSeriesImage}. ${
+      u.tiv ? "Size of parenchymal component" : "Size"
+    }: ${essentialsSizeWithUnit}. Prior size: ${essentialsPriorSize}`
+  );
+  essentialsLines.push(`Tumor in vein: ${essentialsTivText}`);
+  essentialsLines.push(`LR-M features: ${essentialsLrMText}`);
+  essentialsLines.push(
+    `Major features: APHE: ${apheText}; Washout: ${washoutText}; Enhancing capsule: ${capsuleText}; Threshold growth: ${thresholdGrowthText}`
+  );
+  essentialsLines.push(`Ancillary features: ${essentialsAncillaryText}`);
+  essentialsLines.push(`LI-RADS category: ${essentialsCategory}`);
+
+  return essentialsLines.join("\n");
 }
 
 async function copyReport(
   state: AppState,
-  result: EngineResult
+  result: EngineResult,
+  hasAnsweredInitialQuestion: boolean,
+  showCalculatedResult: boolean
 ): Promise<boolean> {
-  const text = buildReport(state, result);
+  const text = buildReport(
+    state,
+    result,
+    hasAnsweredInitialQuestion,
+    showCalculatedResult
+  );
 
   try {
     if (navigator.clipboard?.writeText) {
