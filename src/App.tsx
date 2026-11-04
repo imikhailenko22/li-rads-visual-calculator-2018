@@ -1826,7 +1826,6 @@ function SizeInputBlock({
   onSizeChange,
   openSpecialGallery,
   title = "Size",
-  showRequiredIndicator = false,
 }: {
   sizeValue: string;
   sizeUnit: SizeUnit;
@@ -3472,7 +3471,6 @@ function buildReport(
   const imgNo = r.imageNumber.trim() || "__";
   const seriesNo = r.seriesNumber.trim() || "__";
   const tivVessels = r.tivVessels.trim();
-  const priorSize = r.priorSize.trim() || "No priors";
   const priorSizeUnit = r.priorSizeUnit || "mm";
 
   const apheText = selectedTargetoidFeatures.some((f) => f.id === "rimAphe")
